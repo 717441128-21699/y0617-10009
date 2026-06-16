@@ -447,12 +447,13 @@ function renderSplitTable(diffLines: DiffLine[], collapsedRegions: CollapsedRegi
 }
 
 function renderSplitEqualRow(line: DiffLine): string {
-  const content = escapeHtml(line.content) || '&nbsp;';
+  const leftContent = escapeHtml(line.oldContent) || '&nbsp;';
+  const rightContent = escapeHtml(line.newContent) || '&nbsp;';
   return `<tr class="line-equal">
     <td class="lineno">${line.oldLineNumber ?? ''}</td>
-    <td class="diff-code"><pre>${content}</pre></td>
+    <td class="diff-code"><pre>${leftContent}</pre></td>
     <td class="lineno">${line.newLineNumber ?? ''}</td>
-    <td class="diff-code"><pre>${content}</pre></td>
+    <td class="diff-code"><pre>${rightContent}</pre></td>
   </tr>`;
 }
 

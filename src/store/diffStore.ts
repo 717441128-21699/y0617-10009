@@ -1,6 +1,15 @@
 import { create } from 'zustand';
-import { DiffLine, ViewMode, DiffStats, CollapsedRegion, CompareOptions } from '@/types/diff';
+import {
+  DiffLine,
+  ViewMode,
+  DiffStats,
+  CollapsedRegion,
+  CompareOptions,
+  DiffSession,
+} from '@/types/diff';
 import { formatDiff, computeStats, findCollapsedRegions } from '@/utils/diffFormatter';
+
+const STORAGE_KEY = 'diff-tool-sessions-v1';
 
 interface DiffState {
   oldCode: string;
@@ -18,6 +27,7 @@ interface DiffState {
   searchKeyword: string;
   currentDiffIndex: number;
   diffLineIndices: number[];
+  sessions: DiffSession[];
 
   setOldCode: (code: string) => void;
   setNewCode: (code: string) => void;
@@ -34,6 +44,12 @@ interface DiffState {
   clearAll: () => void;
   goToNextDiff: () => void;
   goToPrevDiff: () => void;
+
+  loadSessions: () => void;
+  saveSession: (name?: string) => string;
+  restoreSession: (id: string) => void;
+  renameSession: (id: string, name: string) => void;
+  deleteSession: (id: string) => void;
 }
 
 const sampleOld = `function calculateSum(arr) {
@@ -67,6 +83,32 @@ const defaultCompareOptions: CompareOptions = {
   ignoreBlankLines: false,
 };
 
+function readSessionsFromStorage(): DiffSession[] {
+  try {
+    if (typeof localStorage === 'undefined') return [];
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed as DiffSession[];
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+function writeSessionsToStorage(sessions: DiffSession[]): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+  } catch {
+    /* ignore quota errors */
+  }
+}
+
+function genId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
 function getDiffLineIndices(diffLines: DiffLine[]): number[] {
   const indices: number[] = [];
   for (let i = 0; i < diffLines.length; i++) {
@@ -82,7 +124,10 @@ function applySearchHighlight(diffLines: DiffLine[], keyword: string): DiffLine[
   const lowerKeyword = keyword.toLowerCase();
   return diffLines.map((line) => ({
     ...line,
-    isSearchMatch: line.content.toLowerCase().includes(lowerKeyword),
+    isSearchMatch:
+      line.oldContent.toLowerCase().includes(lowerKeyword) ||
+      line.newContent.toLowerCase().includes(lowerKeyword) ||
+      line.content.toLowerCase().includes(lowerKeyword),
   }));
 }
 
@@ -91,7 +136,11 @@ function applyCurrentDiffHighlight(
   diffLineIndices: number[],
   currentDiffIndex: number
 ): DiffLine[] {
-  if (diffLineIndices.length === 0 || currentDiffIndex < 0 || currentDiffIndex >= diffLineIndices.length) {
+  if (
+    diffLineIndices.length === 0 ||
+    currentDiffIndex < 0 ||
+    currentDiffIndex >= diffLineIndices.length
+  ) {
     return diffLines.map((line) => ({ ...line, isCurrentDiff: false }));
   }
   const targetIdx = diffLineIndices[currentDiffIndex];
@@ -117,6 +166,7 @@ export const useDiffStore = create<DiffState>((set, get) => ({
   searchKeyword: '',
   currentDiffIndex: -1,
   diffLineIndices: [],
+  sessions: [],
 
   setOldCode: (code: string) => set({ oldCode: code, hasCompared: false }),
   setNewCode: (code: string) => set({ newCode: code, hasCompared: false }),
@@ -215,5 +265,89 @@ export const useDiffStore = create<DiffState>((set, get) => ({
     const updated = applyCurrentDiffHighlight(diffLines, diffLineIndices, prevIdx);
     const withSearch = applySearchHighlight(updated, searchKeyword);
     set({ currentDiffIndex: prevIdx, diffLines: withSearch });
+  },
+
+  loadSessions: () => {
+    set({ sessions: readSessionsFromStorage() });
+  },
+
+  saveSession: (name?: string) => {
+    const {
+      oldCode,
+      newCode,
+      oldFileName,
+      newFileName,
+      viewMode,
+      compareOptions,
+      sessions,
+    } = get();
+
+    const displayName =
+      name && name.trim()
+        ? name.trim()
+        : oldFileName && newFileName
+        ? `${oldFileName} vs ${newFileName}`
+        : `会话 ${new Date().toLocaleString('zh-CN')}`;
+
+    const session: DiffSession = {
+      id: genId(),
+      name: displayName,
+      createdAt: Date.now(),
+      oldCode,
+      newCode,
+      oldFileName,
+      newFileName,
+      viewMode,
+      compareOptions: { ...compareOptions },
+    };
+
+    const newSessions = [session, ...sessions].slice(0, 50);
+    writeSessionsToStorage(newSessions);
+    set({ sessions: newSessions });
+    return session.id;
+  },
+
+  restoreSession: (id: string) => {
+    const { sessions } = get();
+    const session = sessions.find((s) => s.id === id);
+    if (!session) return;
+
+    set({
+      oldCode: session.oldCode,
+      newCode: session.newCode,
+      oldFileName: session.oldFileName,
+      newFileName: session.newFileName,
+      viewMode: session.viewMode,
+      compareOptions: { ...session.compareOptions },
+      hasCompared: false,
+      diffLines: [],
+      stats: { insertions: 0, deletions: 0, equal: 0 },
+      collapsedRegions: [],
+      expandedRegions: new Set<number>(),
+      showChangesOnly: false,
+      searchKeyword: '',
+      currentDiffIndex: -1,
+      diffLineIndices: [],
+    });
+
+    setTimeout(() => {
+      get().compare();
+    }, 0);
+  },
+
+  renameSession: (id: string, name: string) => {
+    const { sessions } = get();
+    const newSessions = sessions.map((s) =>
+      s.id === id ? { ...s, name: name.trim() || s.name } : s
+    );
+    writeSessionsToStorage(newSessions);
+    set({ sessions: newSessions });
+  },
+
+  deleteSession: (id: string) => {
+    const { sessions } = get();
+    const newSessions = sessions.filter((s) => s.id !== id);
+    writeSessionsToStorage(newSessions);
+    set({ sessions: newSessions });
   },
 }));

@@ -7,6 +7,12 @@ interface DiffLineContentProps {
   searchKeyword?: string;
 }
 
+function getSideContent(line: DiffLine, side?: 'old' | 'new'): string {
+  if (side === 'old') return line.oldContent;
+  if (side === 'new') return line.newContent;
+  return line.content;
+}
+
 function highlightSearchText(text: string, keyword: string): JSX.Element[] {
   if (!keyword.trim()) return [<span key={0}>{text}</span>];
 
@@ -62,22 +68,30 @@ export function DiffLineContent({ line, side, searchKeyword }: DiffLineContentPr
           </span>
         );
       }
-      return <span key={i} className={getInlineSpanClass(diff.type)}>{diff.value}</span>;
+      return (
+        <span key={i} className={getInlineSpanClass(diff.type)}>
+            {diff.value}
+          </span>
+      );
     });
   };
 
   if (!line.inlineDiffs || line.inlineDiffs.length === 0) {
-    const content = line.content || '\u00A0';
+    const content = getSideContent(line, side) || '\u00A0';
     if (searchKeyword && searchKeyword.trim()) {
-      return <span className={cn('whitespace-pre')}>{highlightSearchText(content, searchKeyword)}</span>;
+      return (
+        <span className={cn('whitespace-pre')}>{highlightSearchText(content, searchKeyword)}</span>
+      );
     }
     return <span>{content}</span>;
   }
 
   if (line.type === DiffLineType.EQUAL) {
-    const content = line.content || '\u00A0';
+    const content = getSideContent(line, side) || '\u00A0';
     if (searchKeyword && searchKeyword.trim()) {
-      return <span className={cn('whitespace-pre')}>{highlightSearchText(content, searchKeyword)}</span>;
+      return (
+        <span className={cn('whitespace-pre')}>{highlightSearchText(content, searchKeyword)}</span>
+      );
     }
     return <span>{content}</span>;
   }

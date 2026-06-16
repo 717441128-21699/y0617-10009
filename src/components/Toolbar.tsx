@@ -12,12 +12,17 @@ import {
   Filter,
   Search,
   Settings2,
+  History,
+  FileCode,
+  ChevronDown as ChevronDownIcon,
 } from 'lucide-react';
 import { useDiffStore } from '@/store/diffStore';
 import { cn } from '@/lib/utils';
 import { exportToHtml, downloadHtml } from '@/utils/exportHtml';
+import { generateUnifiedDiff, downloadText } from '@/utils/generatePatch';
 import { CompareOptions } from '@/types/diff';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { HistoryPanel } from './HistoryPanel';
 
 export function Toolbar() {
   const {
@@ -44,11 +49,25 @@ export function Toolbar() {
     goToPrevDiff,
     currentDiffIndex,
     diffLineIndices,
+    saveSession,
   } = useDiffStore();
 
   const [showOptions, setShowOptions] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
 
-  const handleExport = () => {
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (!exportRef.current?.contains(e.target as Node)) {
+        setShowExportMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, []);
+
+  const handleExportHtml = () => {
     if (!hasCompared || diffLines.length === 0) return;
     const html = exportToHtml(
       diffLines,
@@ -62,6 +81,15 @@ export function Toolbar() {
     );
     const timestamp = new Date().toISOString().slice(0, 10);
     downloadHtml(`diff-report-${timestamp}.html`, html);
+    setShowExportMenu(false);
+  };
+
+  const handleExportPatch = () => {
+    if (!hasCompared || diffLines.length === 0) return;
+    const patch = generateUnifiedDiff(oldFileName, newFileName, diffLines);
+    const timestamp = new Date().toISOString().slice(0, 10);
+    downloadText(`diff-${timestamp}.patch`, patch, 'text/x-diff');
+    setShowExportMenu(false);
   };
 
   const handleSwap = () => {
@@ -74,6 +102,10 @@ export function Toolbar() {
     store.setNewCode(currentOld);
     store.setOldFileName(currentNewName);
     store.setNewFileName(currentOldName);
+  };
+
+  const handleSaveSession = () => {
+    saveSession();
   };
 
   const optionLabels: { key: keyof CompareOptions; label: string; desc: string }[] = [
@@ -185,6 +217,25 @@ export function Toolbar() {
           )}
         </button>
 
+        <button
+          onClick={handleSaveSession}
+          disabled={!hasCompared}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-catppuccin-subtext0 hover:text-catppuccin-green hover:bg-catppuccin-green/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          title="保存当前对比到历史"
+        >
+          <Download className="w-3.5 h-3.5 rotate-180" />
+          保存
+        </button>
+
+        <button
+          onClick={() => setShowHistory(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-catppuccin-subtext0 hover:text-catppuccin-text hover:bg-catppuccin-surface0/50 transition-all"
+          title="对比会话历史"
+        >
+          <History className="w-3.5 h-3.5" />
+          历史
+        </button>
+
         <div className="h-6 w-px bg-catppuccin-surface0 mx-2" />
 
         <button
@@ -210,17 +261,38 @@ export function Toolbar() {
           </div>
         )}
 
-        <button
-          onClick={handleExport}
-          disabled={!hasCompared || diffLines.length === 0}
-          className={cn(
-            'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed',
-            'bg-catppuccin-blue/20 text-catppuccin-blue hover:bg-catppuccin-blue/30'
+        <div className="relative" ref={exportRef}>
+          <button
+            onClick={() => setShowExportMenu(!showExportMenu)}
+            disabled={!hasCompared || diffLines.length === 0}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed',
+              'bg-catppuccin-blue/20 text-catppuccin-blue hover:bg-catppuccin-blue/30'
+            )}
+          >
+            <Download className="w-3.5 h-3.5" />
+            导出
+            <ChevronDownIcon className="w-3 h-3 opacity-70" />
+          </button>
+          {showExportMenu && (
+            <div className="absolute right-0 mt-1.5 w-44 rounded-lg border border-catppuccin-surface0 bg-catppuccin-mantle shadow-xl overflow-hidden z-20">
+              <button
+                onClick={handleExportHtml}
+                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-catppuccin-subtext0 hover:text-catppuccin-text hover:bg-catppuccin-surface0/60 transition-colors"
+              >
+                <Download className="w-3.5 h-3.5" />
+                HTML 报告
+              </button>
+              <button
+                onClick={handleExportPatch}
+                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-catppuccin-subtext0 hover:text-catppuccin-text hover:bg-catppuccin-surface0/60 transition-colors border-t border-catppuccin-surface0"
+              >
+                <FileCode className="w-3.5 h-3.5" />
+                Patch / Unified Diff
+              </button>
+            </div>
           )}
-        >
-          <Download className="w-3.5 h-3.5" />
-          导出 HTML
-        </button>
+        </div>
 
         <button
           onClick={compare}
@@ -326,6 +398,8 @@ export function Toolbar() {
           </div>
         </div>
       )}
+
+      <HistoryPanel open={showHistory} onClose={() => setShowHistory(false)} />
     </div>
   );
 }

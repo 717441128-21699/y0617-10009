@@ -88,11 +88,13 @@ export function SplitView() {
       continue;
     }
 
-    if (
+    const canPair =
+      !showChangesOnly &&
       line.type === DiffLineType.DELETE &&
       i + 1 < filteredLines.length &&
-      filteredLines[i + 1].type === DiffLineType.INSERT
-    ) {
+      filteredLines[i + 1].type === DiffLineType.INSERT;
+
+    if (canPair) {
       renderedRows.push(renderModifiedPair(line, filteredLines[i + 1], originalIndex));
       i += 2;
     } else if (line.type === DiffLineType.DELETE) {

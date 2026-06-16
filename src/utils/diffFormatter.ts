@@ -40,6 +40,27 @@ function preprocessLines(
   return { normalized, originalMap };
 }
 
+function makeDiffLine(
+  type: DiffLineType,
+  oldText: string,
+  newText: string,
+  oldLineNumber: number | null,
+  newLineNumber: number | null,
+  inlineDiffs?: DiffLine['inlineDiffs']
+): DiffLine {
+  const primary = type === DiffLineType.DELETE ? oldText : type === DiffLineType.INSERT ? newText : oldText;
+  return {
+    type,
+    content: primary,
+    originalContent: primary,
+    oldContent: oldText,
+    newContent: newText,
+    oldLineNumber,
+    newLineNumber,
+    inlineDiffs,
+  };
+}
+
 export function formatDiff(
   oldText: string,
   newText: string,
@@ -53,25 +74,29 @@ export function formatDiff(
   }
 
   if (oldText === '') {
-    return newLines.map((line, i) => ({
-      type: DiffLineType.INSERT,
-      content: line,
-      originalContent: line,
-      oldLineNumber: null,
-      newLineNumber: i + 1,
-      inlineDiffs: [{ type: DiffLineType.INSERT, value: line }],
-    }));
+    return newLines.map((line, i) =>
+      makeDiffLine(
+        DiffLineType.INSERT,
+        '',
+        line,
+        null,
+        i + 1,
+        [{ type: DiffLineType.INSERT, value: line }]
+      )
+    );
   }
 
   if (newText === '') {
-    return oldLines.map((line, i) => ({
-      type: DiffLineType.DELETE,
-      content: line,
-      originalContent: line,
-      oldLineNumber: i + 1,
-      newLineNumber: null,
-      inlineDiffs: [{ type: DiffLineType.DELETE, value: line }],
-    }));
+    return oldLines.map((line, i) =>
+      makeDiffLine(
+        DiffLineType.DELETE,
+        line,
+        '',
+        i + 1,
+        null,
+        [{ type: DiffLineType.DELETE, value: line }]
+      )
+    );
   }
 
   const needNormalize =
@@ -91,24 +116,28 @@ export function formatDiff(
     return [];
   }
   if (oldNorm.length === 0) {
-    return newMap.map((origIdx, i) => ({
-      type: DiffLineType.INSERT,
-      content: newLines[origIdx],
-      originalContent: newLines[origIdx],
-      oldLineNumber: null,
-      newLineNumber: origIdx + 1,
-      inlineDiffs: [{ type: DiffLineType.INSERT, value: newLines[origIdx] }],
-    }));
+    return newMap.map((origIdx) =>
+      makeDiffLine(
+        DiffLineType.INSERT,
+        '',
+        newLines[origIdx],
+        null,
+        origIdx + 1,
+        [{ type: DiffLineType.INSERT, value: newLines[origIdx] }]
+      )
+    );
   }
   if (newNorm.length === 0) {
-    return oldMap.map((origIdx, i) => ({
-      type: DiffLineType.DELETE,
-      content: oldLines[origIdx],
-      originalContent: oldLines[origIdx],
-      oldLineNumber: origIdx + 1,
-      newLineNumber: null,
-      inlineDiffs: [{ type: DiffLineType.DELETE, value: oldLines[origIdx] }],
-    }));
+    return oldMap.map((origIdx) =>
+      makeDiffLine(
+        DiffLineType.DELETE,
+        oldLines[origIdx],
+        '',
+        origIdx + 1,
+        null,
+        [{ type: DiffLineType.DELETE, value: oldLines[origIdx] }]
+      )
+    );
   }
 
   const normalizedEqual =
@@ -116,20 +145,18 @@ export function formatDiff(
   if (normalizedEqual) {
     return oldMap.map((origOldIdx, i) => {
       const origNewIdx = newMap[i];
-      return {
-        type: DiffLineType.EQUAL,
-        content: oldLines[origOldIdx],
-        originalContent: oldLines[origOldIdx],
-        oldLineNumber: origOldIdx + 1,
-        newLineNumber: origNewIdx + 1,
-      };
+      return makeDiffLine(
+        DiffLineType.EQUAL,
+        oldLines[origOldIdx] ?? '',
+        newLines[origNewIdx] ?? '',
+        origOldIdx + 1,
+        origNewIdx + 1
+      );
     });
   }
 
   const operations = myersDiff(oldNorm, newNorm);
   const diffLines: DiffLine[] = [];
-  let oldLineNum = 1;
-  let newLineNum = 1;
 
   const groupedOperations: EditOperation[][] = [];
   let currentGroup: EditOperation[] = [];
@@ -164,15 +191,15 @@ export function formatDiff(
       for (const op of equals) {
         const origOldIdx = oldMap[op.oldIndex];
         const origNewIdx = newMap[op.newIndex];
-        diffLines.push({
-          type: DiffLineType.EQUAL,
-          content: oldLines[origOldIdx] ?? '',
-          originalContent: oldLines[origOldIdx] ?? '',
-          oldLineNumber: origOldIdx + 1,
-          newLineNumber: origNewIdx + 1,
-        });
-        oldLineNum++;
-        newLineNum++;
+        diffLines.push(
+          makeDiffLine(
+            DiffLineType.EQUAL,
+            oldLines[origOldIdx] ?? '',
+            newLines[origNewIdx] ?? '',
+            origOldIdx + 1,
+            origNewIdx + 1
+          )
+        );
       }
     }
 
@@ -185,80 +212,86 @@ export function formatDiff(
         const newContent = newLines[origNewIdx] ?? '';
         const { oldDiffs, newDiffs } = computeInlineDiff(oldContent, newContent);
 
-        diffLines.push({
-          type: DiffLineType.DELETE,
-          content: oldContent,
-          originalContent: oldContent,
-          oldLineNumber: origOldIdx + 1,
-          newLineNumber: null,
-          inlineDiffs: oldDiffs,
-        });
-        oldLineNum++;
+        diffLines.push(
+          makeDiffLine(
+            DiffLineType.DELETE,
+            oldContent,
+            '',
+            origOldIdx + 1,
+            null,
+            oldDiffs
+          )
+        );
 
-        diffLines.push({
-          type: DiffLineType.INSERT,
-          content: newContent,
-          originalContent: newContent,
-          oldLineNumber: null,
-          newLineNumber: origNewIdx + 1,
-          inlineDiffs: newDiffs,
-        });
-        newLineNum++;
+        diffLines.push(
+          makeDiffLine(
+            DiffLineType.INSERT,
+            '',
+            newContent,
+            null,
+            origNewIdx + 1,
+            newDiffs
+          )
+        );
       }
 
       for (let i = minLen; i < deletes.length; i++) {
         const origOldIdx = oldMap[deletes[i].oldIndex];
         const content = oldLines[origOldIdx] ?? '';
-        diffLines.push({
-          type: DiffLineType.DELETE,
-          content,
-          originalContent: content,
-          oldLineNumber: origOldIdx + 1,
-          newLineNumber: null,
-          inlineDiffs: [{ type: DiffLineType.DELETE, value: content }],
-        });
-        oldLineNum++;
+        diffLines.push(
+          makeDiffLine(
+            DiffLineType.DELETE,
+            content,
+            '',
+            origOldIdx + 1,
+            null,
+            [{ type: DiffLineType.DELETE, value: content }]
+          )
+        );
       }
 
       for (let i = minLen; i < inserts.length; i++) {
         const origNewIdx = newMap[inserts[i].newIndex];
         const content = newLines[origNewIdx] ?? '';
-        diffLines.push({
-          type: DiffLineType.INSERT,
-          content,
-          originalContent: content,
-          oldLineNumber: null,
-          newLineNumber: origNewIdx + 1,
-          inlineDiffs: [{ type: DiffLineType.INSERT, value: content }],
-        });
-        newLineNum++;
+        diffLines.push(
+          makeDiffLine(
+            DiffLineType.INSERT,
+            '',
+            content,
+            null,
+            origNewIdx + 1,
+            [{ type: DiffLineType.INSERT, value: content }]
+          )
+        );
       }
     } else {
       for (const op of deletes) {
         const origOldIdx = oldMap[op.oldIndex];
         const content = oldLines[origOldIdx] ?? '';
-        diffLines.push({
-          type: DiffLineType.DELETE,
-          content,
-          originalContent: content,
-          oldLineNumber: origOldIdx + 1,
-          newLineNumber: null,
-          inlineDiffs: [{ type: DiffLineType.DELETE, value: content }],
-        });
-        oldLineNum++;
+        diffLines.push(
+          makeDiffLine(
+            DiffLineType.DELETE,
+            content,
+            '',
+            origOldIdx + 1,
+            null,
+            [{ type: DiffLineType.DELETE, value: content }]
+          )
+        );
       }
       for (const op of inserts) {
         const origNewIdx = newMap[op.newIndex];
         const content = newLines[origNewIdx] ?? '';
-        diffLines.push({
-          type: DiffLineType.INSERT,
-          content,
-          originalContent: content,
-          oldLineNumber: null,
-          newLineNumber: origNewIdx + 1,
-          inlineDiffs: [{ type: DiffLineType.INSERT, value: content }],
-        });
-        newLineNum++;
+        diffLines.push(
+          makeDiffLine(
+            DiffLineType.INSERT,
+            '',
+            content,
+            null,
+            origNewIdx + 1,
+            [{ type: DiffLineType.INSERT, value: content }]
+          )
+        );
       }
     }
   }
@@ -268,19 +301,13 @@ export function formatDiff(
 
 function formatDiffRaw(oldLines: string[], newLines: string[]): DiffLine[] {
   if (oldLines.join('\n') === newLines.join('\n')) {
-    return oldLines.map((line, i) => ({
-      type: DiffLineType.EQUAL,
-      content: line,
-      originalContent: line,
-      oldLineNumber: i + 1,
-      newLineNumber: i + 1,
-    }));
+    return oldLines.map((line, i) =>
+      makeDiffLine(DiffLineType.EQUAL, line, line, i + 1, i + 1)
+    );
   }
 
   const operations = myersDiff(oldLines, newLines);
   const diffLines: DiffLine[] = [];
-  let oldLineNum = 1;
-  let newLineNum = 1;
 
   const groupedOperations: EditOperation[][] = [];
   let currentGroup: EditOperation[] = [];
@@ -313,15 +340,15 @@ function formatDiffRaw(oldLines: string[], newLines: string[]): DiffLine[] {
 
     if (equals.length > 0) {
       for (const op of equals) {
-        diffLines.push({
-          type: DiffLineType.EQUAL,
-          content: oldLines[op.oldIndex] ?? '',
-          originalContent: oldLines[op.oldIndex] ?? '',
-          oldLineNumber: oldLineNum,
-          newLineNumber: newLineNum,
-        });
-        oldLineNum++;
-        newLineNum++;
+        diffLines.push(
+          makeDiffLine(
+            DiffLineType.EQUAL,
+            oldLines[op.oldIndex] ?? '',
+            newLines[op.newIndex] ?? '',
+            op.oldIndex + 1,
+            op.newIndex + 1
+          )
+        );
       }
     }
 
@@ -332,76 +359,68 @@ function formatDiffRaw(oldLines: string[], newLines: string[]): DiffLine[] {
         const newContent = newLines[inserts[i].newIndex] ?? '';
         const { oldDiffs, newDiffs } = computeInlineDiff(oldContent, newContent);
 
-        diffLines.push({
-          type: DiffLineType.DELETE,
-          content: oldContent,
-          originalContent: oldContent,
-          oldLineNumber: oldLineNum,
-          newLineNumber: null,
-          inlineDiffs: oldDiffs,
-        });
-        oldLineNum++;
+        diffLines.push(
+          makeDiffLine(DiffLineType.DELETE, oldContent, '', deletes[i].oldIndex + 1, null, oldDiffs)
+        );
 
-        diffLines.push({
-          type: DiffLineType.INSERT,
-          content: newContent,
-          originalContent: newContent,
-          oldLineNumber: null,
-          newLineNumber: newLineNum,
-          inlineDiffs: newDiffs,
-        });
-        newLineNum++;
+        diffLines.push(
+          makeDiffLine(DiffLineType.INSERT, '', newContent, null, inserts[i].newIndex + 1, newDiffs)
+        );
       }
 
       for (let i = minLen; i < deletes.length; i++) {
         const content = oldLines[deletes[i].oldIndex] ?? '';
-        diffLines.push({
-          type: DiffLineType.DELETE,
-          content,
-          originalContent: content,
-          oldLineNumber: oldLineNum,
-          newLineNumber: null,
-          inlineDiffs: [{ type: DiffLineType.DELETE, value: content }],
-        });
-        oldLineNum++;
+        diffLines.push(
+          makeDiffLine(
+            DiffLineType.DELETE,
+            content,
+            '',
+            deletes[i].oldIndex + 1,
+            null,
+            [{ type: DiffLineType.DELETE, value: content }]
+          )
+        );
       }
 
       for (let i = minLen; i < inserts.length; i++) {
         const content = newLines[inserts[i].newIndex] ?? '';
-        diffLines.push({
-          type: DiffLineType.INSERT,
-          content,
-          originalContent: content,
-          oldLineNumber: null,
-          newLineNumber: newLineNum,
-          inlineDiffs: [{ type: DiffLineType.INSERT, value: content }],
-        });
-        newLineNum++;
+        diffLines.push(
+          makeDiffLine(
+            DiffLineType.INSERT,
+            '',
+            content,
+            null,
+            inserts[i].newIndex + 1,
+            [{ type: DiffLineType.INSERT, value: content }]
+          )
+        );
       }
     } else {
       for (const op of deletes) {
         const content = oldLines[op.oldIndex] ?? '';
-        diffLines.push({
-          type: DiffLineType.DELETE,
-          content,
-          originalContent: content,
-          oldLineNumber: oldLineNum,
-          newLineNumber: null,
-          inlineDiffs: [{ type: DiffLineType.DELETE, value: content }],
-        });
-        oldLineNum++;
+        diffLines.push(
+          makeDiffLine(
+            DiffLineType.DELETE,
+            content,
+            '',
+            op.oldIndex + 1,
+            null,
+            [{ type: DiffLineType.DELETE, value: content }]
+          )
+        );
       }
       for (const op of inserts) {
         const content = newLines[op.newIndex] ?? '';
-        diffLines.push({
-          type: DiffLineType.INSERT,
-          content,
-          originalContent: content,
-          oldLineNumber: null,
-          newLineNumber: newLineNum,
-          inlineDiffs: [{ type: DiffLineType.INSERT, value: content }],
-        });
-        newLineNum++;
+        diffLines.push(
+          makeDiffLine(
+            DiffLineType.INSERT,
+            '',
+            content,
+            null,
+            op.newIndex + 1,
+            [{ type: DiffLineType.INSERT, value: content }]
+          )
+        );
       }
     }
   }

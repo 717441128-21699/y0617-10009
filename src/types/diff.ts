@@ -13,6 +13,8 @@ export interface DiffLine {
   type: DiffLineType;
   content: string;
   originalContent: string;
+  oldContent: string;
+  newContent: string;
   oldLineNumber: number | null;
   newLineNumber: number | null;
   inlineDiffs?: InlineDiff[];
@@ -45,4 +47,16 @@ export interface CompareOptions {
   ignoreAllWhitespace: boolean;
   ignoreCase: boolean;
   ignoreBlankLines: boolean;
+}
+
+export interface DiffSession {
+  id: string;
+  name: string;
+  createdAt: number;
+  oldCode: string;
+  newCode: string;
+  oldFileName: string;
+  newFileName: string;
+  viewMode: ViewMode;
+  compareOptions: CompareOptions;
 }
