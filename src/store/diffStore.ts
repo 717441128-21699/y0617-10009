@@ -6,12 +6,16 @@ import {
   CollapsedRegion,
   CompareOptions,
   DiffSession,
+  FileEntry,
+  AppMode,
+  FileChangeStatus,
 } from '@/types/diff';
 import { formatDiff, computeStats, findCollapsedRegions } from '@/utils/diffFormatter';
 
 const STORAGE_KEY = 'diff-tool-sessions-v1';
 
 interface DiffState {
+  appMode: AppMode;
   oldCode: string;
   newCode: string;
   oldFileName: string;
@@ -28,7 +32,10 @@ interface DiffState {
   currentDiffIndex: number;
   diffLineIndices: number[];
   sessions: DiffSession[];
+  projectFiles: FileEntry[];
+  activeFileId: string | null;
 
+  setAppMode: (mode: AppMode) => void;
   setOldCode: (code: string) => void;
   setNewCode: (code: string) => void;
   setOldFileName: (name: string) => void;
@@ -50,6 +57,13 @@ interface DiffState {
   restoreSession: (id: string) => void;
   renameSession: (id: string, name: string) => void;
   deleteSession: (id: string) => void;
+
+  loadProjectFiles: (oldFiles: Map<string, string>, newFiles: Map<string, string>) => void;
+  setActiveFileId: (id: string | null) => void;
+  toggleFileSelection: (id: string) => void;
+  selectAllFiles: () => void;
+  deselectAllFiles: () => void;
+  getSelectedFiles: () => FileEntry[];
 }
 
 const sampleOld = `function calculateSum(arr) {
@@ -100,9 +114,7 @@ function writeSessionsToStorage(sessions: DiffSession[]): void {
   try {
     if (typeof localStorage === 'undefined') return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
-  } catch {
-    /* ignore quota errors */
-  }
+  } catch {}
 }
 
 function genId(): string {
@@ -150,7 +162,15 @@ function applyCurrentDiffHighlight(
   }));
 }
 
+function computeFileStatus(oldContent: string | undefined, newContent: string | undefined): FileChangeStatus {
+  if (oldContent === undefined && newContent !== undefined) return 'added';
+  if (oldContent !== undefined && newContent === undefined) return 'deleted';
+  if (oldContent === newContent) return 'unchanged';
+  return 'modified';
+}
+
 export const useDiffStore = create<DiffState>((set, get) => ({
+  appMode: 'single',
   oldCode: sampleOld,
   newCode: sampleNew,
   oldFileName: '',
@@ -166,8 +186,11 @@ export const useDiffStore = create<DiffState>((set, get) => ({
   searchKeyword: '',
   currentDiffIndex: -1,
   diffLineIndices: [],
-  sessions: [],
+  sessions: readSessionsFromStorage(),
+  projectFiles: [],
+  activeFileId: null,
 
+  setAppMode: (mode: AppMode) => set({ appMode: mode }),
   setOldCode: (code: string) => set({ oldCode: code, hasCompared: false }),
   setNewCode: (code: string) => set({ newCode: code, hasCompared: false }),
   setOldFileName: (name: string) => set({ oldFileName: name }),
@@ -246,6 +269,8 @@ export const useDiffStore = create<DiffState>((set, get) => ({
       searchKeyword: '',
       currentDiffIndex: -1,
       diffLineIndices: [],
+      projectFiles: [],
+      activeFileId: null,
     });
   },
 
@@ -328,6 +353,9 @@ export const useDiffStore = create<DiffState>((set, get) => ({
       searchKeyword: '',
       currentDiffIndex: -1,
       diffLineIndices: [],
+      appMode: 'single',
+      projectFiles: [],
+      activeFileId: null,
     });
 
     setTimeout(() => {
@@ -349,5 +377,106 @@ export const useDiffStore = create<DiffState>((set, get) => ({
     const newSessions = sessions.filter((s) => s.id !== id);
     writeSessionsToStorage(newSessions);
     set({ sessions: newSessions });
+  },
+
+  loadProjectFiles: (oldFiles: Map<string, string>, newFiles: Map<string, string>) => {
+    const { compareOptions } = get();
+    const allPaths = new Set<string>();
+    oldFiles.forEach((_, path) => allPaths.add(path));
+    newFiles.forEach((_, path) => allPaths.add(path));
+
+    const sortedPaths = Array.from(allPaths).sort();
+    const projectFiles: FileEntry[] = sortedPaths.map((path) => {
+      const oldContent = oldFiles.get(path);
+      const newContent = newFiles.get(path);
+      const status = computeFileStatus(oldContent, newContent);
+
+      let diffLines: DiffLine[] = [];
+      let stats: DiffStats = { insertions: 0, deletions: 0, equal: 0 };
+
+      if (status !== 'unchanged') {
+        diffLines = formatDiff(oldContent ?? '', newContent ?? '', compareOptions);
+        stats = computeStats(diffLines);
+      }
+
+      return {
+        id: genId(),
+        path,
+        status,
+        oldContent: oldContent ?? '',
+        newContent: newContent ?? '',
+        diffLines,
+        stats,
+        selected: status !== 'unchanged',
+      };
+    });
+
+    const firstChanged = projectFiles.find((f) => f.status !== 'unchanged');
+
+    set({
+      projectFiles,
+      activeFileId: firstChanged?.id ?? null,
+      appMode: 'project',
+      hasCompared: true,
+    });
+
+    if (firstChanged) {
+      get().setActiveFileId(firstChanged.id);
+    }
+  },
+
+  setActiveFileId: (id: string | null) => {
+    const { projectFiles, compareOptions, searchKeyword } = get();
+    const file = projectFiles.find((f) => f.id === id);
+    if (!file) {
+      set({ activeFileId: null });
+      return;
+    }
+
+    const diffLines = formatDiff(file.oldContent, file.newContent, compareOptions);
+    const stats = computeStats(diffLines);
+    const collapsedRegions = findCollapsedRegions(diffLines, 3);
+    const diffLineIndices = getDiffLineIndices(diffLines);
+    const withSearch = applySearchHighlight(diffLines, searchKeyword);
+    const withCurrent = applyCurrentDiffHighlight(withSearch, diffLineIndices, 0);
+
+    set({
+      activeFileId: id,
+      oldCode: file.oldContent,
+      newCode: file.newContent,
+      oldFileName: file.path,
+      newFileName: file.path,
+      diffLines: withCurrent,
+      stats,
+      collapsedRegions,
+      expandedRegions: new Set<number>(),
+      currentDiffIndex: diffLineIndices.length > 0 ? 0 : -1,
+      diffLineIndices,
+    });
+  },
+
+  toggleFileSelection: (id: string) => {
+    const { projectFiles } = get();
+    const newFiles = projectFiles.map((f) =>
+      f.id === id ? { ...f, selected: !f.selected } : f
+    );
+    set({ projectFiles: newFiles });
+  },
+
+  selectAllFiles: () => {
+    const { projectFiles } = get();
+    const newFiles = projectFiles.map((f) => ({ ...f, selected: true }));
+    set({ projectFiles: newFiles });
+  },
+
+  deselectAllFiles: () => {
+    const { projectFiles } = get();
+    const newFiles = projectFiles.map((f) => ({ ...f, selected: false }));
+    set({ projectFiles: newFiles });
+  },
+
+  getSelectedFiles: () => {
+    const { projectFiles } = get();
+    return projectFiles.filter((f) => f.selected);
   },
 }));

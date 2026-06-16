@@ -60,3 +60,22 @@ export interface DiffSession {
   viewMode: ViewMode;
   compareOptions: CompareOptions;
 }
+
+export type FileChangeStatus = 'added' | 'deleted' | 'modified' | 'unchanged';
+
+export interface FileEntry {
+  id: string;
+  path: string;
+  status: FileChangeStatus;
+  oldContent: string;
+  newContent: string;
+  diffLines: DiffLine[];
+  stats: DiffStats;
+  selected: boolean;
+}
+
+export type AppMode = 'single' | 'project';
+
+export type FileListSortKey = 'name' | 'status' | 'changes';
+export type FileListSortDir = 'asc' | 'desc';
+export type FileListFilter = 'all' | 'added' | 'deleted' | 'modified' | 'unchanged';
