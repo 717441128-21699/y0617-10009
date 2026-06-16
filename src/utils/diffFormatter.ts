@@ -6,6 +6,39 @@ export function formatDiff(oldText: string, newText: string): DiffLine[] {
   const oldLines = oldText.split('\n');
   const newLines = newText.split('\n');
 
+  if (oldText === '' && newText === '') {
+    return [];
+  }
+
+  if (oldText === '') {
+    return newLines.map((line, i) => ({
+      type: DiffLineType.INSERT,
+      content: line,
+      oldLineNumber: null,
+      newLineNumber: i + 1,
+      inlineDiffs: [{ type: DiffLineType.INSERT, value: line }],
+    }));
+  }
+
+  if (newText === '') {
+    return oldLines.map((line, i) => ({
+      type: DiffLineType.DELETE,
+      content: line,
+      oldLineNumber: i + 1,
+      newLineNumber: null,
+      inlineDiffs: [{ type: DiffLineType.DELETE, value: line }],
+    }));
+  }
+
+  if (oldText === newText) {
+    return oldLines.map((line, i) => ({
+      type: DiffLineType.EQUAL,
+      content: line,
+      oldLineNumber: i + 1,
+      newLineNumber: i + 1,
+    }));
+  }
+
   const operations = myersDiff(oldLines, newLines);
   const diffLines: DiffLine[] = [];
   let oldLineNum = 1;

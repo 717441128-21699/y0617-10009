@@ -45,7 +45,7 @@ function computeDiffRanges(
   const newSub = newStr.slice(newStart, newEnd);
   const lcs = longestCommonSubstring(oldSub, newSub);
 
-  if (lcs.length < 2) return;
+  if (lcs.length < 1) return;
 
   const absOldStart = oldStart + lcs.startA;
   const absNewStart = newStart + lcs.startB;
