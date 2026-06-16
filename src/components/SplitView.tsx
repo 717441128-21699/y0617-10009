@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useDiffStore } from '@/store/diffStore';
 import { DiffLineType } from '@/types/diff';
 import { cn } from '@/lib/utils';
@@ -5,7 +6,22 @@ import { DiffLineContent } from './DiffLineContent';
 import { CollapsedHunk } from './CollapsedHunk';
 
 export function SplitView() {
-  const { diffLines, collapsedRegions, expandedRegions, toggleRegion } = useDiffStore();
+  const {
+    diffLines,
+    collapsedRegions,
+    expandedRegions,
+    toggleRegion,
+    showChangesOnly,
+    searchKeyword,
+  } = useDiffStore();
+
+  const currentDiffRef = useRef<HTMLTableRowElement>(null);
+
+  useEffect(() => {
+    if (currentDiffRef.current) {
+      currentDiffRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [diffLines]);
 
   if (diffLines.length === 0) {
     return (
@@ -15,9 +31,17 @@ export function SplitView() {
     );
   }
 
+  const filteredLines = showChangesOnly
+    ? diffLines.filter((line) => line.type !== DiffLineType.EQUAL)
+    : diffLines;
+
+  const filteredCollapsedRegions = showChangesOnly
+    ? []
+    : collapsedRegions;
+
   const isInCollapsedRegion = (lineIndex: number): { inRegion: boolean; regionIndex: number } => {
-    for (let i = 0; i < collapsedRegions.length; i++) {
-      const region = collapsedRegions[i];
+    for (let i = 0; i < filteredCollapsedRegions.length; i++) {
+      const region = filteredCollapsedRegions[i];
       if (lineIndex >= region.startIndex && lineIndex <= region.endIndex) {
         return { inRegion: true, regionIndex: i };
       }
@@ -29,13 +53,15 @@ export function SplitView() {
   let lastRenderedRegion = -1;
 
   let i = 0;
-  while (i < diffLines.length) {
-    const { inRegion, regionIndex } = isInCollapsedRegion(i);
+  while (i < filteredLines.length) {
+    const line = filteredLines[i];
+    const originalIndex = diffLines.indexOf(line);
+    const { inRegion, regionIndex } = isInCollapsedRegion(originalIndex);
 
     if (inRegion) {
       if (regionIndex !== lastRenderedRegion) {
         lastRenderedRegion = regionIndex;
-        const region = collapsedRegions[regionIndex];
+        const region = filteredCollapsedRegions[regionIndex];
         const isExpanded = expandedRegions.has(regionIndex);
 
         renderedRows.push(
@@ -62,22 +88,21 @@ export function SplitView() {
       continue;
     }
 
-    const line = diffLines[i];
     if (
       line.type === DiffLineType.DELETE &&
-      i + 1 < diffLines.length &&
-      diffLines[i + 1].type === DiffLineType.INSERT
+      i + 1 < filteredLines.length &&
+      filteredLines[i + 1].type === DiffLineType.INSERT
     ) {
-      renderedRows.push(renderModifiedPair(line, diffLines[i + 1], i));
+      renderedRows.push(renderModifiedPair(line, filteredLines[i + 1], originalIndex));
       i += 2;
     } else if (line.type === DiffLineType.DELETE) {
-      renderedRows.push(renderDeleteLine(line, i));
+      renderedRows.push(renderDeleteLine(line, originalIndex));
       i++;
     } else if (line.type === DiffLineType.INSERT) {
-      renderedRows.push(renderInsertLine(line, i));
+      renderedRows.push(renderInsertLine(line, originalIndex));
       i++;
     } else {
-      renderedRows.push(renderEqualLine(line, i));
+      renderedRows.push(renderEqualLine(line, originalIndex));
       i++;
     }
   }
@@ -88,18 +113,26 @@ export function SplitView() {
     key: number
   ) {
     return (
-      <tr key={key} className="font-mono text-sm">
+      <tr
+        key={key}
+        ref={oldLine.isCurrentDiff || newLine.isCurrentDiff ? currentDiffRef : undefined}
+        className={cn(
+          'font-mono text-sm',
+          (oldLine.isCurrentDiff || newLine.isCurrentDiff) && 'ring-2 ring-catppuccin-mauve ring-inset',
+          (oldLine.isSearchMatch || newLine.isSearchMatch) && 'bg-catppuccin-yellow/10'
+        )}
+      >
         <td className="w-14 px-2 py-0.5 text-right text-xs select-none bg-red-950/40 text-red-300 border-r border-catppuccin-surface0">
           {oldLine.oldLineNumber ?? ''}
         </td>
         <td className="px-3 py-0.5 whitespace-pre leading-6 w-1/2 bg-red-950/20 border-r border-catppuccin-surface0">
-          <DiffLineContent line={oldLine} side="old" />
+          <DiffLineContent line={oldLine} side="old" searchKeyword={searchKeyword} />
         </td>
         <td className="w-14 px-2 py-0.5 text-right text-xs select-none bg-emerald-950/40 text-emerald-300 border-r border-catppuccin-surface0">
           {newLine.newLineNumber ?? ''}
         </td>
         <td className="px-3 py-0.5 whitespace-pre leading-6 w-1/2 bg-emerald-950/20">
-          <DiffLineContent line={newLine} side="new" />
+          <DiffLineContent line={newLine} side="new" searchKeyword={searchKeyword} />
         </td>
       </tr>
     );
@@ -107,12 +140,20 @@ export function SplitView() {
 
   function renderDeleteLine(line: typeof diffLines[number], key: number) {
     return (
-      <tr key={key} className="font-mono text-sm">
+      <tr
+        key={key}
+        ref={line.isCurrentDiff ? currentDiffRef : undefined}
+        className={cn(
+          'font-mono text-sm',
+          line.isCurrentDiff && 'ring-2 ring-catppuccin-mauve ring-inset',
+          line.isSearchMatch && 'bg-catppuccin-yellow/10'
+        )}
+      >
         <td className="w-14 px-2 py-0.5 text-right text-xs select-none bg-red-950/40 text-red-300 border-r border-catppuccin-surface0">
           {line.oldLineNumber ?? ''}
         </td>
         <td className="px-3 py-0.5 whitespace-pre leading-6 w-1/2 bg-red-950/20 border-r border-catppuccin-surface0">
-          <DiffLineContent line={line} side="old" />
+          <DiffLineContent line={line} side="old" searchKeyword={searchKeyword} />
         </td>
         <td className="w-14 px-2 py-0.5 text-right text-xs select-none bg-catppuccin-mantle border-r border-catppuccin-surface0"></td>
         <td className="px-3 py-0.5 whitespace-pre leading-6 w-1/2 bg-catppuccin-mantle"></td>
@@ -122,14 +163,22 @@ export function SplitView() {
 
   function renderInsertLine(line: typeof diffLines[number], key: number) {
     return (
-      <tr key={key} className="font-mono text-sm">
+      <tr
+        key={key}
+        ref={line.isCurrentDiff ? currentDiffRef : undefined}
+        className={cn(
+          'font-mono text-sm',
+          line.isCurrentDiff && 'ring-2 ring-catppuccin-mauve ring-inset',
+          line.isSearchMatch && 'bg-catppuccin-yellow/10'
+        )}
+      >
         <td className="w-14 px-2 py-0.5 text-right text-xs select-none bg-catppuccin-mantle border-r border-catppuccin-surface0"></td>
         <td className="px-3 py-0.5 whitespace-pre leading-6 w-1/2 bg-catppuccin-mantle border-r border-catppuccin-surface0"></td>
         <td className="w-14 px-2 py-0.5 text-right text-xs select-none bg-emerald-950/40 text-emerald-300 border-r border-catppuccin-surface0">
           {line.newLineNumber ?? ''}
         </td>
         <td className="px-3 py-0.5 whitespace-pre leading-6 w-1/2 bg-emerald-950/20">
-          <DiffLineContent line={line} side="new" />
+          <DiffLineContent line={line} side="new" searchKeyword={searchKeyword} />
         </td>
       </tr>
     );
@@ -137,18 +186,24 @@ export function SplitView() {
 
   function renderEqualLine(line: typeof diffLines[number], key: number) {
     return (
-      <tr key={key} className={cn('font-mono text-sm hover:bg-catppuccin-surface0/20')}>
+      <tr
+        key={key}
+        className={cn(
+          'font-mono text-sm hover:bg-catppuccin-surface0/20',
+          line.isSearchMatch && 'bg-catppuccin-yellow/10'
+        )}
+      >
         <td className="w-14 px-2 py-0.5 text-right text-xs select-none text-catppuccin-overlay0 bg-catppuccin-mantle border-r border-catppuccin-surface0">
           {line.oldLineNumber ?? ''}
         </td>
         <td className="px-3 py-0.5 whitespace-pre leading-6 w-1/2 border-r border-catppuccin-surface0">
-          {line.content || '\u00A0'}
+          <DiffLineContent line={line} side="old" searchKeyword={searchKeyword} />
         </td>
         <td className="w-14 px-2 py-0.5 text-right text-xs select-none text-catppuccin-overlay0 bg-catppuccin-mantle border-r border-catppuccin-surface0">
           {line.newLineNumber ?? ''}
         </td>
         <td className="px-3 py-0.5 whitespace-pre leading-6 w-1/2">
-          {line.content || '\u00A0'}
+          <DiffLineContent line={line} side="new" searchKeyword={searchKeyword} />
         </td>
       </tr>
     );

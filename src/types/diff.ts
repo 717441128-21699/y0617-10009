@@ -12,9 +12,12 @@ export interface InlineDiff {
 export interface DiffLine {
   type: DiffLineType;
   content: string;
+  originalContent: string;
   oldLineNumber: number | null;
   newLineNumber: number | null;
   inlineDiffs?: InlineDiff[];
+  isSearchMatch?: boolean;
+  isCurrentDiff?: boolean;
 }
 
 export interface EditOperation {
@@ -35,4 +38,11 @@ export interface DiffStats {
   insertions: number;
   deletions: number;
   equal: number;
+}
+
+export interface CompareOptions {
+  ignoreTrailingWhitespace: boolean;
+  ignoreAllWhitespace: boolean;
+  ignoreCase: boolean;
+  ignoreBlankLines: boolean;
 }

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useDiffStore } from '@/store/diffStore';
 import { DiffLineType } from '@/types/diff';
 import { cn } from '@/lib/utils';
@@ -5,7 +6,22 @@ import { DiffLineContent } from './DiffLineContent';
 import { CollapsedHunk } from './CollapsedHunk';
 
 export function UnifiedView() {
-  const { diffLines, collapsedRegions, expandedRegions, toggleRegion } = useDiffStore();
+  const {
+    diffLines,
+    collapsedRegions,
+    expandedRegions,
+    toggleRegion,
+    showChangesOnly,
+    searchKeyword,
+  } = useDiffStore();
+
+  const currentDiffRef = useRef<HTMLTableRowElement>(null);
+
+  useEffect(() => {
+    if (currentDiffRef.current) {
+      currentDiffRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [diffLines]);
 
   if (diffLines.length === 0) {
     return (
@@ -15,9 +31,17 @@ export function UnifiedView() {
     );
   }
 
+  const filteredLines = showChangesOnly
+    ? diffLines.filter((line) => line.type !== DiffLineType.EQUAL)
+    : diffLines;
+
+  const filteredCollapsedRegions = showChangesOnly
+    ? []
+    : collapsedRegions;
+
   const isInCollapsedRegion = (lineIndex: number): { inRegion: boolean; regionIndex: number } => {
-    for (let i = 0; i < collapsedRegions.length; i++) {
-      const region = collapsedRegions[i];
+    for (let i = 0; i < filteredCollapsedRegions.length; i++) {
+      const region = filteredCollapsedRegions[i];
       if (lineIndex >= region.startIndex && lineIndex <= region.endIndex) {
         return { inRegion: true, regionIndex: i };
       }
@@ -28,14 +52,15 @@ export function UnifiedView() {
   const renderedRows: JSX.Element[] = [];
   let lastRenderedRegion = -1;
 
-  for (let i = 0; i < diffLines.length; i++) {
-    const line = diffLines[i];
-    const { inRegion, regionIndex } = isInCollapsedRegion(i);
+  for (let i = 0; i < filteredLines.length; i++) {
+    const line = filteredLines[i];
+    const originalIndex = diffLines.indexOf(line);
+    const { inRegion, regionIndex } = isInCollapsedRegion(originalIndex);
 
     if (inRegion) {
       if (regionIndex !== lastRenderedRegion) {
         lastRenderedRegion = regionIndex;
-        const region = collapsedRegions[regionIndex];
+        const region = filteredCollapsedRegions[regionIndex];
         const isExpanded = expandedRegions.has(regionIndex);
 
         renderedRows.push(
@@ -55,7 +80,7 @@ export function UnifiedView() {
         }
       }
     } else {
-      renderedRows.push(renderLine(line, i));
+      renderedRows.push(renderLine(line, originalIndex));
     }
   }
 
@@ -67,11 +92,14 @@ export function UnifiedView() {
     return (
       <tr
         key={key}
+        ref={line.isCurrentDiff ? currentDiffRef : undefined}
         className={cn(
           'font-mono text-sm',
           isInsert && 'bg-emerald-950/30',
           isDelete && 'bg-red-950/30',
-          isEqual && 'hover:bg-catppuccin-surface0/20'
+          isEqual && 'hover:bg-catppuccin-surface0/20',
+          line.isCurrentDiff && 'ring-2 ring-catppuccin-mauve ring-inset',
+          line.isSearchMatch && 'bg-catppuccin-yellow/10'
         )}
       >
         <td
@@ -103,7 +131,7 @@ export function UnifiedView() {
           {isInsert ? '+' : isDelete ? '-' : ' '}
         </td>
         <td className="px-3 py-0.5 whitespace-pre leading-6">
-          <DiffLineContent line={line} />
+          <DiffLineContent line={line} searchKeyword={searchKeyword} />
         </td>
       </tr>
     );

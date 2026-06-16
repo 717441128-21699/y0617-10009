@@ -6,14 +6,33 @@ import { SplitView } from '@/components/SplitView';
 import { useDiffStore } from '@/store/diffStore';
 
 export default function Home() {
-  const { oldCode, newCode, setOldCode, setNewCode, viewMode, compare, hasCompared } =
-    useDiffStore();
+  const {
+    oldCode,
+    newCode,
+    oldFileName,
+    newFileName,
+    setOldCode,
+    setNewCode,
+    setOldFileName,
+    setNewFileName,
+    viewMode,
+    compare,
+    hasCompared,
+  } = useDiffStore();
 
   useEffect(() => {
     if (oldCode && newCode && !hasCompared) {
       compare();
     }
   }, []);
+
+  const handleOldFileClear = () => {
+    setOldCode('');
+  };
+
+  const handleNewFileClear = () => {
+    setNewCode('');
+  };
 
   return (
     <div className="min-h-screen bg-catppuccin-base flex flex-col">
@@ -23,7 +42,7 @@ export default function Home() {
             代码差异对比工具
           </h1>
           <p className="text-sm text-catppuccin-subtext0">
-            基于 Myers 差分算法 · 支持行级与字符级高亮 · 统一视图/并排视图切换
+            基于 Myers 差分算法 · 支持行级与字符级高亮 · 文件上传 · 对比选项 · 差异导航
           </p>
         </header>
 
@@ -34,15 +53,21 @@ export default function Home() {
             value={oldCode}
             onChange={setOldCode}
             label="原始代码"
-            placeholder="在此粘贴或输入原始代码..."
+            placeholder="在此粘贴、输入或拖拽文件..."
             accentColor="red"
+            fileName={oldFileName}
+            onFileNameChange={setOldFileName}
+            onFileClear={handleOldFileClear}
           />
           <CodeInput
             value={newCode}
             onChange={setNewCode}
             label="修改后代码"
-            placeholder="在此粘贴或输入修改后的代码..."
+            placeholder="在此粘贴、输入或拖拽文件..."
             accentColor="green"
+            fileName={newFileName}
+            onFileNameChange={setNewFileName}
+            onFileClear={handleNewFileClear}
           />
         </div>
 
@@ -59,6 +84,8 @@ export default function Home() {
           </span>
           <span className="mx-3">·</span>
           <span>连续 3 行以上未变化的内容将自动折叠</span>
+          <span className="mx-3">·</span>
+          <span>支持文件上传拖拽和关键字搜索</span>
         </footer>
       </div>
     </div>
